@@ -7,7 +7,6 @@ CC = clang
 CFLAGS = -Wall
 DEBUG_FLAGS = -DDEBUG -ggdb
 LIBRARY = -fPIC -shared -ldl -lpthread
-ASAN = -fsanitize=address -lasan
 
 all: library test
 
@@ -28,7 +27,6 @@ test: clean library
 debug_test: clean library_debug
 	mkdir -p build/
 	$(CC) $(CFLAGS) $(UNIT_TEST) $(INCLUDE_DIR) $(DEBUG_FLAGS) fork_guard_test.c vector.c -o build/fork_guard_test -lpthread
-
 
 vector_test:
 	mkdir -p build/

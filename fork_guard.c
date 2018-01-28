@@ -594,7 +594,7 @@ int32_t read_symbol_list(char *symbol_file) {
 		if(strncmp(p, "0x", 2) == 0) {
 			uintptr_t offset = 0;
 			offset = sd->addr = (uintptr_t) strtoul(p, NULL, 16);
-			sd->base_addr = library_path;
+			sd->base_addr = (uintptr_t) library_path;
 			ret = dl_iterate_phdr(build_whitelist_callback, (void *) sd);
 
 			if(ret == ERROR) {
@@ -609,7 +609,7 @@ int32_t read_symbol_list(char *symbol_file) {
 		} else {
 			sd->addr = (uintptr_t) dlsym(library_handle, p);
 
-			if(sd->addr == NULL) {
+			if(sd->addr == 0x0) {
 				LOG("Could not locate symbol [%s]", p);
 				free(sd);
 				continue;
@@ -617,7 +617,7 @@ int32_t read_symbol_list(char *symbol_file) {
 
 			Dl_info dlinfo;
 
-			if(dladdr(sd->addr, &dlinfo) > 0) {
+			if(dladdr((void *) sd->addr, &dlinfo) > 0) {
 				sd->base_addr = (uintptr_t) dlinfo.dli_fbase;
 			} else {
 				LOG("Could not locate library base address with dladdr [%s]", p);
