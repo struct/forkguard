@@ -1,8 +1,5 @@
 ## Fork Guard Makefile
 
-## This is only tested with GCC. If you change it to
-## clang it will likely break as getting the address
-## of functions using & is not portable/standard
 CC = clang
 CFLAGS = -Wall
 DEBUG_FLAGS = -DDEBUG -ggdb
