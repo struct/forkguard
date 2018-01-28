@@ -1,0 +1,440 @@
+/lib/x86_64-linux-gnu/libc.so.6:fork
+/lib/x86_64-linux-gnu/libc.so.6:__libc_fork
+/lib/x86_64-linux-gnu/libc.so.6:__fork
+/lib/x86_64-linux-gnu/libdl.so.2:dlinfo
+/lib/x86_64-linux-gnu/libdl.so.2:dlopen
+/lib/x86_64-linux-gnu/libdl.so.2:dlclose
+/lib/x86_64-linux-gnu/libdl.so.2:dladdr
+/lib/x86_64-linux-gnu/libdl.so.2:dladdr1
+/lib/x86_64-linux-gnu/libdl.so.2:dlsym
+/lib/x86_64-linux-gnu/libdl.so.2:dlmopen
+/lib/x86_64-linux-gnu/libdl.so.2:dlerror
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x5b30
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x5b30
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:__libc_fork
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x84020
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x5b43
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:_IO_iter_begin
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x6890
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x6890
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x9e70
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x11980
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x9f8b
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x290
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x9f8b
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x2c8
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:getpid
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:_IO_fprintf
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:_IO_vfprintf
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:strchrnul
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:_pthread_cleanup_push_defer
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:funlockfile
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:_pthread_cleanup_push_defer
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:_IO_file_xsputn
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x8f3b0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x4a6b0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:socket
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:socket
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:gethostbyname
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:gethostbyname
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:__nss_hostname_digits_dots
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:__res_maybe_init
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:__res_ninit
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x126a50
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:getenv
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:strlen
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x8d375
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:fopen
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x7bb30
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:_IO_link_in
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x8e060
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:_IO_file_open
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:fgets_unlocked
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:_IO_getline
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:__fxstat64
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:__write
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x94470
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:inet_aton
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:strtoul
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x9f520
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x89ab0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:gethostbyname_r
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x1401c0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x115090
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:__nss_hosts_lookup2
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:__nss_database_lookup
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:getline
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:tsearch
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x128a40
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:tsearch
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x128a40
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:__libc_dlopen_mode
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x14ce0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x128f6e
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:pthread_mutex_lock
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x128f6e
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x128f6e
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:__pthread_mutex_unlock
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x1205f
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:pthread_once
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x127ad0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:pthread_once
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:__ctype_b_loc
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:__ctype_b_loc
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:__connect
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:__connect
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:exit
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:__close
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:exit
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x12ad4
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x12ad4
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x5b30
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x5b30
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:__libc_fork
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x84020
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x5b43
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x6890
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x6890
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x9e70
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x11980
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x9f8b
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x290
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x9f8b
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x2c8
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x8f3b0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x4a6b0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x126a50
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x8d375
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x7bb30
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x8e060
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:_IO_file_open
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x94470
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x9f520
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x89ab0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x1401c0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x115090
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:tsearch
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x128a40
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x14ce0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x128f6e
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x1205f
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x12ad4
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x12ad4
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x5b30
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x5b30
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:__libc_fork
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x84020
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x5b43
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x6890
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x6890
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x9e70
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x11980
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x9f8b
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x290
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x9f8b
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x2c8
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x8f3b0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x4a6b0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x126a50
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x8d375
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x7bb30
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x8e060
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:_IO_file_open
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x94470
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x9f520
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x89ab0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x1401c0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x115090
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:tsearch
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x128a40
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x14ce0
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libc.so.6:0x128f6e
+
+# Added by Fork Guard tracing mode
+/lib64/ld-linux-x86-64.so.2:0x1205f
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x12ad4
+
+# Added by Fork Guard tracing mode
+/lib/x86_64-linux-gnu/libpthread.so.0:0x12ad4
