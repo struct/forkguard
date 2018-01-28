@@ -59,7 +59,38 @@ void *drop_pages(void *p, void *data) {
 			LOG_ERROR("Failed to drop page %lx in library [%s]", page->page, page->library);
 		}
 	} else {
-		LOG("Can't drop page 0x%lx", page->page);
+		LOG("Can't drop page 0x%lx [%s]", page->page, page->library);
+	}
+
+	return NULL;
+}
+
+void *add_whitelist_to_pages(void *p, void *data) {
+	symbol_entry_t *sd = (symbol_entry_t *) p;
+
+	/* Anything with a real symbol is handled in fork_guard_phdr_callback */
+	if(sd->has_real_symbol == true) {
+		return NULL;
+	}
+
+	/* Add this symbol to the proper page vector */
+	page_desc_t *page_desc = NULL;
+	page_desc = vector_for_each(&all_pages, (vector_for_each_callback_t *) find_existing_page, (void *) get_base_page(sd->addr));
+
+	/* If we have seen this page before then
+	 * add the symbol to the existing entry */
+	if(page_desc == NULL) {
+		page_desc = (page_desc_t *) malloc(sizeof(page_desc_t));
+		page_desc->page = get_base_page(sd->addr);
+		page_desc->dropped = false;
+		page_desc->contains_wls = true;
+		strncpy(page_desc->library, "unknown", sizeof(page_desc->library));
+		vector_init(&page_desc->symbols);
+		vector_push(&page_desc->symbols, sd);
+		vector_push(&all_pages, page_desc);
+	} else {
+		page_desc->contains_wls = true;
+		vector_push(&page_desc->symbols, sd);
 	}
 
 	return NULL;
@@ -70,7 +101,6 @@ pid_t fork(void) {
 	pid_t child_pid;
 	char *fg_whitelist = getenv(FG_WHITELIST);
 	char *fg_tracing_mode = getenv(FG_TRACING_MODE);
-	int32_t ret = 0;
 
 	/* Handle the whitelist */
 	if(fg_whitelist != NULL && whitelist_parsed == false) {
@@ -79,13 +109,16 @@ pid_t fork(void) {
 	}
 
 	/* TODO - Use 'ret' */
+	int32_t ret = 0;
 
 	/* Gather symbols if we haven't yet. We only do this
-	 * once. TOOD: This should probably be configurable */
+	 * once. TOOD: This should be configurable */
 	if(symbols_parsed == false) {
 		ret = dl_iterate_phdr(fork_guard_phdr_callback, NULL);
 		symbols_parsed = true;
 	}
+
+	vector_for_each(&function_whitelist, (vector_for_each_callback_t *) add_whitelist_to_pages, NULL);
 
 	vector_for_each(&all_pages, (vector_for_each_callback_t *)drop_pages, NULL);
 
@@ -178,7 +211,6 @@ void *child_tracer(void *data) {
 
 		if(WIFEXITED(status)) {
 		    LOG("Child exited with status %d", WEXITSTATUS(status));
-		    exit(0);
 		    return NULL;
 		} else if(WIFSIGNALED(status)) {
 		    LOG("Child killed: %s", strsignal(WTERMSIG(status)));
@@ -218,7 +250,6 @@ void *child_tracer(void *data) {
 					vector_for_each(&all_pages, (vector_for_each_callback_t *)check_dropped_pages, (void *) registers.edx);
 					vector_for_each(&all_pages, (vector_for_each_callback_t *)check_dropped_pages, (void *) registers.edi);
 #endif
-done:
 					ptrace(PTRACE_DETACH, child_pid, 0, 0);
 					return NULL;
 					break;
@@ -468,6 +499,26 @@ int32_t append_symbol_list(char *symbol_file, char *library, char *symbol) {
 	return OK;
 }
 
+/* Invoked by read_symbol_list. Used for when the whitelist
+ * passes in an offset to a library. We need to know that
+ * library base address and this is how we get it */
+static int32_t build_whitelist_callback(struct dl_phdr_info *info, size_t size, void *data) {
+	symbol_entry_t *sd = (symbol_entry_t *) data;
+
+	if(data == NULL) {
+		LOG_ERROR("Passed a NULL symbol value")
+		return ERROR;
+	}
+
+	if(strcmp((char *) sd->base_addr, info->dlpi_name) == 0) {
+		sd->base_addr = info->dlpi_addr;
+		sd->addr += sd->base_addr;
+		return 0;
+	}
+
+	return OK;
+}
+
 /* Takes a newline seperated file of symbols and builds
  * a temporary vector for symbol parsing to use later .
  * The whitelist format is simple:
@@ -492,6 +543,7 @@ int32_t read_symbol_list(char *symbol_file) {
 	char library_path[512];
 	char *library_handle = NULL;
 	char *p = NULL;
+	int32_t ret = 0;
 
 	memset(line, 0x0, sizeof(line));
 	memset(library_path, 0x0, sizeof(library_path));
@@ -533,32 +585,51 @@ int32_t read_symbol_list(char *symbol_file) {
 			continue;
 		}
 
-		uintptr_t addr = 0;
-
-		/* Safe to assume an offset is being supplied */
-		if(strncmp(p, "0x", 2) == 0) {
-			uint64_t offset = strtoul(p, NULL, 16);
-			/* This relies on a non-standard side effect of dlopen.
-			 * Which is that the opaque handle is returns is the
-			 * base address of the object */
-			addr = (uintptr_t) library_handle+offset;
-		} else {
-			addr = (uintptr_t) dlsym(library_handle, p);
-		}
-
-		if(addr) {
-			LOG("Successfully found symbol [%s] @ 0x%lx", p, addr);
-		} else {
-			LOG("Could not locate symbol [%s]", p);
-			continue;
-		}
-
 		/* We can't create the entire structure
 		 * because all we have is an address. */
 		symbol_entry_t *sd = (symbol_entry_t *) malloc(sizeof(symbol_entry_t));
 		memset(sd, 0x0, sizeof(symbol_entry_t));
-		sd->addr = addr;
-		sd->base_addr = get_base_page(addr);
+
+		/* Safe to assume an offset is being supplied */
+		if(strncmp(p, "0x", 2) == 0) {
+			uintptr_t offset = 0;
+			offset = sd->addr = (uintptr_t) strtoul(p, NULL, 16);
+			sd->base_addr = library_path;
+			ret = dl_iterate_phdr(build_whitelist_callback, (void *) sd);
+
+			if(ret == ERROR) {
+				LOG("Could not locate library base address for [%s]", library_path);
+				free(sd);
+				continue;
+			}
+
+			sd->has_real_symbol = false;
+
+			LOG("Successfully found address [%s] in library [0x%lx] @ 0x%lx", p, sd->base_addr, sd->addr);
+		} else {
+			sd->addr = (uintptr_t) dlsym(library_handle, p);
+
+			if(sd->addr == NULL) {
+				LOG("Could not locate symbol [%s]", p);
+				free(sd);
+				continue;
+			}
+
+			Dl_info dlinfo;
+
+			if(dladdr(sd->addr, &dlinfo) > 0) {
+				sd->base_addr = (uintptr_t) dlinfo.dli_fbase;
+			} else {
+				LOG("Could not locate library base address with dladdr [%s]", p);
+				free(sd);
+				continue;
+			}
+
+			sd->has_real_symbol = true;
+
+			LOG("Successfully found symbol [%s] in library [0x%lx] @ 0x%lx", p, sd->base_addr, sd->addr);
+		}
+
 		sd->whitelist = true;
 		strncpy(sd->name, p, sizeof(sd->name));
 

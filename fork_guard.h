@@ -26,8 +26,8 @@
 #define NO 0
 #define YES 1
 
-#define MAX_SYMBOL_NAME 1024
-#define MAX_LIBRARY_PATH 1024
+#define MAX_SYMBOL_NAME 512
+#define MAX_LIBRARY_PATH 4096
 
 /* Environment variables for controlling Fork Guard */
 #define FG_WHITELIST "FG_WHITELIST"
@@ -62,6 +62,8 @@ typedef struct _symbol_entry_t {
 	bool whitelist;
 	/* ASCII name of the symbol */
 	char name[MAX_SYMBOL_NAME];
+	/* true if by name, false if by offset */
+	bool has_real_symbol;
 } symbol_entry_t;
 
 /* We store them seperately to speed up searching */
@@ -114,9 +116,12 @@ void vector_pointer_free(void *p);
 void vector_free_internal(void *p);
 void free_fg_vectors();
 void *drop_pages(void *p, void *data);
+void *add_whitelist_to_pages(void *p, void *data);
 void *check_dropped_pages(void *p, void *data);
+void *find_existing_page(void *p, void *data);
 void *is_symbol_whitelisted(void *p, void *data);
 static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, void *data);
+static int32_t build_whitelist_callback(struct dl_phdr_info *info, size_t size, void *data);
 
 /* Overloaded libc functions */
 pid_t(*original_fork)(void);

@@ -24,17 +24,14 @@ int32_t child_process_stuff() {
     struct sockaddr_in servaddr;
     struct hostent *server;
 
-printf("000\n");
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
-printf("222\n");
     if(sockfd < 0) {
         fprintf(stdout, "Could not open socket\n");
     }
-printf("111\n");
+
     server = gethostbyname("localhost");
 
-printf("333\n");
     if(server == NULL) {
         fprintf(stdout, "No such host\n");
         exit(0);
@@ -44,7 +41,7 @@ printf("333\n");
     memcpy((char *)server->h_addr,  (char *)&servaddr.sin_addr.s_addr, server->h_length);
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(80);
-fprintf(stdout, "connected?\n");
+
     if(connect(sockfd, (struct sockaddr *) &servaddr,sizeof(servaddr)) < 0) {
         fprintf(stdout, "Could not connect\n");
 	}
