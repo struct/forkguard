@@ -71,9 +71,9 @@ typedef struct _symbol_entry_t {
 /* We store them seperately to speed up searching */
 vector_t function_whitelist;
 
-bool symbols_parsed;
-bool whitelist_parsed;
-bool stats_dumped;
+bool g_symbols_parsed;
+bool g_whitelist_parsed;
+bool g_stats_dumped;
 
 /* Internally Fork Guard works at the page level.
  * Before any pages are dropped we check what
@@ -128,4 +128,4 @@ static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, 
 static int32_t build_whitelist_callback(struct dl_phdr_info *info, size_t size, void *data);
 
 /* Overloaded libc functions */
-pid_t(*original_fork)(void);
+pid_t(*g_original_fork)(void);

@@ -9,21 +9,28 @@
  * Check out the README for more information on these */
 __attribute__((constructor)) void fg_ctor() {
 	/* Copy a pointer to the original fork() in libc */
-	original_fork = dlsym(RTLD_NEXT, "fork");
+	g_original_fork = dlsym(RTLD_NEXT, "fork");
 
 	/* We parse symbols the first time fork is called */
-	symbols_parsed = false;
+	g_symbols_parsed = false;
 
 	/* We parse the whitelist the first time fork is called */
-	whitelist_parsed = false;
+	g_whitelist_parsed = false;
 
 	/* We only want to dump page stats once */
-	stats_dumped = false;
+	g_stats_dumped = false;
 
 	/* Initialize the symbol vectors */
 	vector_init(&function_whitelist);
 	vector_init(&all_pages);
 	vector_init(&tracer_threads);
+}
+
+/* Using a dtor in Fork Guard introduces some annoying
+ * gotchas. Mainly that a forked child process will
+ * eventually invoke it before it exits */
+__attribute__((destructor)) void fg_dtor() {
+	free_fg_vectors();
 }
 
 /* Uses madvise to instruct the kernel
@@ -120,9 +127,9 @@ pid_t fork(void) {
 	char *fg_tracing_mode = getenv(FG_TRACING_MODE);
 
 	/* Handle the whitelist */
-	if(fg_whitelist != NULL && whitelist_parsed == false) {
+	if(fg_whitelist != NULL && g_whitelist_parsed == false) {
 		read_symbol_list(fg_whitelist);
-		whitelist_parsed = true;
+		g_whitelist_parsed = true;
 	}
 
 	/* TODO - Use 'ret' */
@@ -130,9 +137,9 @@ pid_t fork(void) {
 
 	/* Gather symbols if we haven't yet. We only do this
 	 * once. TOOD: This should be configurable */
-	if(symbols_parsed == false) {
+	if(g_symbols_parsed == false) {
 		dl_iterate_phdr(fork_guard_phdr_callback, NULL);
-		symbols_parsed = true;
+		g_symbols_parsed = true;
 	}
 
 	/* We previously parsed a whitelist of symbols that we
@@ -147,8 +154,8 @@ pid_t fork(void) {
 
 	vector_for_each(&all_pages, (vector_for_each_callback_t *) drop_pages, NULL);
 
-	if(getenv("FG_DUMPSTATS") && stats_dumped == false) {
-		stats_dumped = true;
+	if(getenv("FG_DUMPSTATS") && g_stats_dumped == false) {
+		g_stats_dumped = true;
 		total_pages = 0;
 		pages_whitelisted = 0;
 		vector_for_each(&all_pages, (vector_for_each_callback_t *) page_stats, NULL);
@@ -162,7 +169,7 @@ pid_t fork(void) {
 	// for tracing mode
 	if(fg_tracing_mode != NULL && strtoul(fg_tracing_mode, NULL, 0) != 0) {
 		LOG("Forking with tracing mode enabled");
-		child_pid = original_fork();
+		child_pid = g_original_fork();
 
 		/* Allow the forked child process to happen, but
 		 * monitor its execution. During this tracing we
@@ -172,19 +179,16 @@ pid_t fork(void) {
 			return child_pid;
 		}
 
-		free_fg_vectors();
 		return child_pid;
 	} else {
 		LOG("Forking with tracing mode disabled");
-		child_pid = original_fork();
+		child_pid = g_original_fork();
 
 		/* If this is the parent process return the child pid */
 		if(child_pid != 0) {
 			return child_pid;
 		}
 
-		/* This is the child process */
-		free_fg_vectors();
 		return child_pid;
 	}
 }
@@ -508,6 +512,9 @@ static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, 
 	return OK;
 }
 
+/* TODO - This function is called by a thread and is not
+ * thread safe. We need a mutex to guard against file
+ * writes here. */
 int32_t append_symbol_list(char *symbol_file, char *library, char *symbol) {
 	if(symbol_file == NULL || symbol == NULL) {
 		LOG_ERROR("Symbol list is NULL");
