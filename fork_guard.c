@@ -17,6 +17,9 @@ __attribute__((constructor)) void fg_ctor() {
 	/* We parse the whitelist the first time fork is called */
 	whitelist_parsed = false;
 
+	/* We only want to dump page stats once */
+	stats_dumped = false;
+
 	/* Initialize the symbol vectors */
 	vector_init(&function_whitelist);
 	vector_init(&all_pages);
@@ -44,6 +47,20 @@ int32_t drop_page_on_fork(uintptr_t page, bool enforce) {
 	} else {
 		return OK;
 	}
+}
+
+uint32_t total_pages = 0;
+uint32_t pages_whitelisted = 0;
+
+void *page_stats(void *p, void *data) {
+	total_pages++;
+	page_desc_t *page = (page_desc_t *) p;
+
+	if(page->contains_wls) {
+		pages_whitelisted++;
+	}
+
+	return NULL;
 }
 
 void *drop_pages(void *p, void *data) {
@@ -114,20 +131,37 @@ pid_t fork(void) {
 	/* Gather symbols if we haven't yet. We only do this
 	 * once. TOOD: This should be configurable */
 	if(symbols_parsed == false) {
-		ret = dl_iterate_phdr(fork_guard_phdr_callback, NULL);
+		dl_iterate_phdr(fork_guard_phdr_callback, NULL);
 		symbols_parsed = true;
 	}
 
+	/* We previously parsed a whitelist of symbols that we
+	 * don't want to drop pages for. Even though we checked
+	 * all symbols in the dl_iterate_phdr callback against
+	 * this list we want to support adding offsets into
+	 * libraries and those won't have symbols we can match
+	 * against. To support that we invoke this callback
+	 * which will iterate through the whitelist again and
+	 * make sure all pages are marked correctly. */
 	vector_for_each(&function_whitelist, (vector_for_each_callback_t *) add_whitelist_to_pages, NULL);
 
-	vector_for_each(&all_pages, (vector_for_each_callback_t *)drop_pages, NULL);
+	vector_for_each(&all_pages, (vector_for_each_callback_t *) drop_pages, NULL);
+
+	if(getenv("FG_DUMPSTATS") && stats_dumped == false) {
+		stats_dumped = true;
+		total_pages = 0;
+		pages_whitelisted = 0;
+		vector_for_each(&all_pages, (vector_for_each_callback_t *) page_stats, NULL);
+		LOG("Pages Found: %d", total_pages);
+		LOG("Pages Dropped: %d", pages_whitelisted);
+		LOG("%.2f%% of pages were dropped", (float)pages_whitelisted / total_pages * 100.0);
+	}
 
 	// TODO this if conditional can be reduced
 	// to a single block by checking internally
 	// for tracing mode
 	if(fg_tracing_mode != NULL && strtoul(fg_tracing_mode, NULL, 0) != 0) {
 		LOG("Forking with tracing mode enabled");
-
 		child_pid = original_fork();
 
 		/* Allow the forked child process to happen, but
@@ -161,22 +195,21 @@ void vector_pointer_free(void *p) {
 }
 
 void vector_free_internal(void *p) {
-	page_desc_t *page = (page_desc_t *) p;
+	/*page_desc_t *page = (page_desc_t *) p;
 	vector_delete_all(&page->symbols, (vector_delete_callback_t *) vector_pointer_free);
-	vector_free(&page->symbols);
+	vector_free(&page->symbols);*/
+	free(p);
 }
 
 /* Free some vectors we allocated earlier */
 void free_fg_vectors() {
-	vector_delete_callback_t *dc = &vector_pointer_free;
-
-	vector_delete_all(&function_whitelist, dc);
+	vector_delete_all(&function_whitelist, (vector_delete_callback_t *) vector_pointer_free);
 	vector_free(&function_whitelist);
 
-	vector_delete_all(&all_pages, dc);
+	vector_delete_all(&all_pages, (vector_delete_callback_t *) vector_free_internal);
 	vector_free(&all_pages);
 
-	vector_delete_all(&tracer_threads, dc);
+	vector_delete_all(&tracer_threads, (vector_delete_callback_t *) vector_pointer_free);
 	vector_free(&tracer_threads);
 }
 
@@ -254,7 +287,6 @@ void *child_tracer(void *data) {
 					return NULL;
 					break;
 		    }
-
 		} else if(WIFCONTINUED(status)) {
 		    LOG("Child continued");
 		}
@@ -297,17 +329,17 @@ void *check_dropped_pages(void *p, void *data) {
 			se->size = 0;
 			se->whitelist = true;
 
-			if(dlinfo.dli_sname && strlen(dlinfo.dli_sname) > 0) {
-				strncpy(se->name, dlinfo.dli_sname, sizeof(se->name));
-			} else {
-				char sym_buf[32];
-				snprintf(sym_buf, sizeof(sym_buf), "0x%lx", (uintptr_t) se->addr - (uintptr_t) dlinfo.dli_fbase);
-				strncpy(se->name, sym_buf, sizeof(se->name));
-			}
+			/* We don't bother looking up a symbol here because
+			 * the linker may return a symbol name that is close
+			 * to the address but not exact. This will cause
+			 * problems later when we go to use the whitelist */
+			char sym_buf[32];
+			snprintf(sym_buf, sizeof(sym_buf), "0x%lx", (uintptr_t) se->addr - (uintptr_t) dlinfo.dli_fbase);
+			strncpy(se->name, sym_buf, sizeof(se->name));
 
 			vector_push(&function_whitelist, se);
 
-			/* Append the symbol name to the whitelist file if there is one */
+			/* Append the offset to the whitelist file if there is one */
 			int32_t aret = append_symbol_list(getenv("FG_WHITELIST"), page->library, se->name);
 
 			if(aret == ERROR) {
@@ -421,15 +453,15 @@ static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, 
 		uintptr_t addr = info->dlpi_addr+sym->st_value;
 
 		/* We only care about symbols of type STT_FUNC because
-		 * they likely point at executable code pages */
-		// TODO - what about size?
-		if((sym->st_info & 0xf) != STT_FUNC) {
+		 * they likely point at executable code pages. Functions
+		 * with a size of 0 are likely imports */
+		if((sym->st_info & 0xf) != STT_FUNC || sym->st_size == 0) {
 			sym++;
 			continue;
 		}
 
-		//LOG("Symbol value base addr = 0x%lx [%s][%d]: 0x%lx -> 0x%lx [%s]", get_base_page(addr), info->dlpi_name, i,
-		//	sym->st_value, info->dlpi_addr+sym->st_value, &strtab[sym->st_name]);
+		LOG("Symbol value base addr = 0x%lx [%s][%d]: 0x%lx -> 0x%lx [%s]", get_base_page(addr), info->dlpi_name, i,
+			sym->st_value, info->dlpi_addr+sym->st_value, &strtab[sym->st_name]);
 
 		symbol_entry_t *sd = (symbol_entry_t *) malloc(sizeof(symbol_entry_t));
 		memset(sd, 0x0, sizeof(symbol_entry_t));
@@ -440,7 +472,9 @@ static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, 
 		memcpy(sd->name, &strtab[sym->st_name], strlen(&strtab[sym->st_name]));
 
 		/* We previously built a symbol whitelist. This
-		 * is where we check those lists for entries */
+		 * is where we check that list to see if it has
+		 * the symbol we just found. If it does we mark
+		 * this symbol entry as whitelisted */
 		if((vector_for_each(&function_whitelist, (vector_for_each_callback_t *) is_function_whitelisted, 
 				(void *) addr)) != NULL) {
 			sd->whitelist = true;
@@ -464,11 +498,7 @@ static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, 
 			vector_push(&page_desc->symbols, sd);
 			vector_push(&all_pages, page_desc);
 		} else {
-			/* page_desc_t->contains_wls should be immutable once set */
-			if(sd->whitelist == true) {
-				page_desc->contains_wls = true;
-			}
-
+			page_desc->contains_wls = sd->whitelist;
 			vector_push(&page_desc->symbols, sd);
 		}
 
@@ -491,6 +521,8 @@ int32_t append_symbol_list(char *symbol_file, char *library, char *symbol) {
 		LOG_ERROR("Failed to open file %s", symbol_file);
 		return ERROR;		
 	}
+
+	LOG("Appending to whitelist: [%s:%s]", library, symbol);
 
 	fprintf(fd, "\n# Added by Fork Guard tracing mode\n%s:%s\n", library, symbol);
 	fflush(fd);
@@ -592,8 +624,10 @@ int32_t read_symbol_list(char *symbol_file) {
 
 		/* Safe to assume an offset is being supplied */
 		if(strncmp(p, "0x", 2) == 0) {
-			uintptr_t offset = 0;
-			offset = sd->addr = (uintptr_t) strtoul(p, NULL, 16);
+			sd->addr = (uintptr_t) strtoul(p, NULL, 16);
+
+			/* base_addr is set to library path because we use
+			 * it in a strncmp in build_whitelist_callback */
 			sd->base_addr = (uintptr_t) library_path;
 			ret = dl_iterate_phdr(build_whitelist_callback, (void *) sd);
 

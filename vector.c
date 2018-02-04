@@ -71,7 +71,13 @@ void *vector_for_each(vector_t *v, vector_for_each_callback_t *fe, void *data) {
     }
 
     for(size_t sz=0; sz < vector_used(v); sz++) {
-       ret = (fe)(vector_get_at(v, sz), data);
+        void *p = vector_get_at(v, sz);
+
+        if(p == NULL) {
+            return NULL;
+        }
+
+        ret = (fe)(p, data);
 
         if(ret != NULL) {
             return ret;
@@ -135,9 +141,8 @@ void vector_init(vector_t *v) {
 }
 
 #if VECTOR_UNIT_TEST
-
 void *vector_fe_test(void *p, void *data) {
-    printf("My for each [%s]\n", p);
+    printf("My for each callback [%s]\n", p);
     return 0;
 }
 
@@ -147,22 +152,21 @@ void vector_pointer_free(void *p) {
 
 int main(int argc, char *argv[]) {
     vector_t v;
-
     vector_init(&v);
     vector_push(&v, "test");
     vector_push(&v, "name");
-    uint8_t *p = (uint8_t *) malloc(32);
-    memset(p, 0x42, 32);
-    vector_push(&v, p);
 
     for(size_t i=0; i < vector_used(&v); i++) {
         printf("%zu = [%s]\n", i, vector_get_at(&v, i));
     }
 
+    for(size_t j=0; j < 25; j++) {
+        vector_push(&v, "added string");
+    }
+
     vector_for_each_callback_t *fe = &vector_fe_test;
     vector_for_each(&v, fe, NULL);
 
-    free(vector_pop(&v));
     vector_delete_all(&v, NULL);
     vector_free(&v);
 
@@ -173,6 +177,7 @@ int main(int argc, char *argv[]) {
     vector_push(&vv, malloc(20));
     vector_push(&vv, malloc(30));
     vector_delete_all(&vv, dc);
+    vector_free(&vv);
 
     return 0;
 }

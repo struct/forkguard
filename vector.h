@@ -23,13 +23,13 @@ typedef struct _vector_t {
 typedef void (vector_delete_callback_t)(void *);
 typedef void *(vector_for_each_callback_t)(void *, void *);
 
+size_t vector_used(vector_t *v);
 void vector_push(vector_t *v, void *ptr);
 void *vector_pop(vector_t *v);
 void *vector_get_end(vector_t *v);
 void *vector_get_at(vector_t *v, size_t index);
 void *vector_for_each(vector_t *v, vector_for_each_callback_t *fe, void *data);
 void *vector_set_at(vector_t *v, int index, void *ptr);
-size_t vector_used(vector_t *v);
 void vector_delete_all(vector_t *v, vector_delete_callback_t *dc);
 void vector_free(vector_t *v);
 void vector_init(vector_t *v);

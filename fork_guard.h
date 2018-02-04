@@ -35,10 +35,12 @@
 
 #if DEBUG
 	#define LOG_ERROR(msg, ...)	\
- 		fprintf(stderr, "[LOG][%d](%s) (%s) - " msg "\n", getpid(), __FUNCTION__, strerror(errno), ##__VA_ARGS__);
+		fprintf(stderr, "[LOG][%d](%s) (%s) - " msg "\n", getpid(), __FUNCTION__, strerror(errno), ##__VA_ARGS__); \
+		fflush(stderr);
 
 	#define LOG(msg, ...)	\
- 		fprintf(stdout, "[LOG][%d](%s) " msg "\n", getpid(), __FUNCTION__, ##__VA_ARGS__);
+		fprintf(stdout, "[LOG][%d](%s) " msg "\n", getpid(), __FUNCTION__, ##__VA_ARGS__); \
+		fflush(stdout);
 #else
 	#define LOG_ERROR(...)
 	#define LOG(...)
@@ -71,6 +73,7 @@ vector_t function_whitelist;
 
 bool symbols_parsed;
 bool whitelist_parsed;
+bool stats_dumped;
 
 /* Internally Fork Guard works at the page level.
  * Before any pages are dropped we check what
@@ -116,6 +119,7 @@ void vector_pointer_free(void *p);
 void vector_free_internal(void *p);
 void free_fg_vectors();
 void *drop_pages(void *p, void *data);
+void *page_stats(void *p, void *data);
 void *add_whitelist_to_pages(void *p, void *data);
 void *check_dropped_pages(void *p, void *data);
 void *find_existing_page(void *p, void *data);
