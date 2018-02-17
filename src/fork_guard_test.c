@@ -18,8 +18,8 @@
 #define ERROR -1
 
 /* Do things child processes do ... */
-int32_t child_process_stuff() {
-	fprintf(stdout, "Attempting connect(localhost:80)\n");
+int32_t child_process_stuff(uint16_t port) {
+	fprintf(stdout, "Attempting connect(localhost:%d)\n", port);
 	int sockfd;
     struct sockaddr_in servaddr;
     struct hostent *server;
@@ -40,7 +40,7 @@ int32_t child_process_stuff() {
     memset((char *) &servaddr, 0x0, sizeof(servaddr));    
     memcpy((char *)server->h_addr,  (char *)&servaddr.sin_addr.s_addr, server->h_length);
     servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(80);
+    servaddr.sin_port = htons(port);
 
     if(connect(sockfd, (struct sockaddr *) &servaddr,sizeof(servaddr)) < 0) {
         fprintf(stdout, "Could not connect\n");
@@ -53,16 +53,23 @@ int32_t child_process_stuff() {
 }
 
 int main(int argc, char *argv[]) {
-	fprintf(stdout, "Parent pid is %d\n", getpid());
 	pid_t child_pid;
 	int32_t status = 0;
 
+    if(argc != 2) {
+        fprintf(stdout, "I need a port number\n");
+        return ERROR;
+    }
+
+    uint16_t port = (uint16_t) atol(argv[1]);
+
+    fprintf(stdout, "Parent pid is %d\n", getpid());
     fprintf(stdout, "Forking child now\n");
 
     while(1) {
     	if((child_pid = fork()) == 0) {
             fprintf(stdout, "Child PID is %d\n", getpid());
-            child_process_stuff();
+            child_process_stuff(port);
             exit(0);
     	}
 
