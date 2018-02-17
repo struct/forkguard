@@ -8,6 +8,7 @@
  * in this way is a matter of setting ENV variables.
  * Check out the README for more information on these */
 __attribute__((constructor)) void fg_ctor() {
+	LOG("Loading Fork Guard");
 	/* Copy a pointer to the original fork() in libc */
 	g_original_fork = dlsym(RTLD_NEXT, "fork");
 
@@ -33,9 +34,19 @@ __attribute__((destructor)) void fg_dtor() {
 	free_fg_vectors();
 }
 
+int32_t env_to_int(char *string) {
+	char *p = getenv(string);
+
+	if(p == NULL) {
+		return 0;
+	}
+
+	return strtoul(p, NULL, 0);
+}
+
 /* Uses madvise to instruct the kernel
  * to drop a page upon fork of a child */
-int32_t drop_page_on_fork(uintptr_t page, bool enforce) {
+int32_t advise_page_on_fork(uintptr_t page, bool enforce) {
 	int ret = 0;
 
 	/* Make sure we are working the base page */
@@ -56,6 +67,7 @@ int32_t drop_page_on_fork(uintptr_t page, bool enforce) {
 	}
 }
 
+/* These are just for debugging */
 uint32_t total_pages = 0;
 uint32_t pages_whitelisted = 0;
 
@@ -75,7 +87,7 @@ void *drop_pages(void *p, void *data) {
 	page_desc_t *page = (page_desc_t *) p;
 
 	if(page != NULL && page->contains_wls == false) {
-		ret = drop_page_on_fork(page->page, true);
+		ret = advise_page_on_fork(page->page, true);
 
 		if(ret == OK) {
 			LOG("Dropping page 0x%lx in library [%s]", page->page, page->library);
@@ -124,7 +136,6 @@ void *add_whitelist_to_pages(void *p, void *data) {
 pid_t fork(void) {
 	pid_t child_pid;
 	char *fg_whitelist = getenv(FG_WHITELIST);
-	char *fg_tracing_mode = getenv(FG_TRACING_MODE);
 
 	/* Handle the whitelist */
 	if(fg_whitelist != NULL && g_whitelist_parsed == false) {
@@ -167,7 +178,7 @@ pid_t fork(void) {
 	// TODO this if conditional can be reduced
 	// to a single block by checking internally
 	// for tracing mode
-	if(fg_tracing_mode != NULL && strtoul(fg_tracing_mode, NULL, 0) != 0) {
+	if(env_to_int(FG_TRACING_MODE) != 0) {
 		LOG("Forking with tracing mode enabled");
 		child_pid = g_original_fork();
 
@@ -250,9 +261,9 @@ void *child_tracer(void *data) {
 		    LOG("Child exited with status %d", WEXITSTATUS(status));
 		    return NULL;
 		} else if(WIFSIGNALED(status)) {
-		    LOG("Child killed: %s", strsignal(WTERMSIG(status)));
+		    LOG("Child killed: %s %d", strsignal(WTERMSIG(status)), WTERMSIG(status));
 		} else if(WIFSTOPPED(status)) {
-		    LOG("Child stopped: %s", strsignal(WSTOPSIG(status)));
+		    LOG("Child stopped: %s %d", strsignal(WSTOPSIG(status)), WSTOPSIG(status));
 
 		    switch(WSTOPSIG(status)) {
 				case SIGSEGV:
@@ -319,11 +330,17 @@ void *check_dropped_pages(void *p, void *data) {
 		ret = dladdr((void *) ip, &dlinfo);
 
 		if(ret != 0) {
-			LOG("Child IP 0x%lx [%s] [%s], which was dropped in page 0x%lx", ip, (char *) dlinfo.dli_sname, (char *)dlinfo.dli_fname, page->page);
+			if(page->dropped == false) {
+				/* Its possible this function straddles two pages */
+				LOG("Child IP 0x%lx [%s] [%s], in page 0x%lx was NOT dropped?!", ip, (char *) dlinfo.dli_sname, (char *)dlinfo.dli_fname, page->page);
+			} else {
+				LOG("Child IP 0x%lx [%s] [%s], which was dropped in page 0x%lx", ip, (char *) dlinfo.dli_sname, (char *)dlinfo.dli_fname, page->page);
+			}
+
 			page->contains_wls = true;
 
 			/* Reverse the mapping behavior on fork via madvise */
-			drop_page_on_fork(page->page, false);
+			advise_page_on_fork(page->page, false);
 
 			/* Create a new entry in the symbol whitelist vector */
 			symbol_entry_t *se = (symbol_entry_t *) malloc(sizeof(symbol_entry_t));
@@ -488,28 +505,50 @@ static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, 
 
 		/* Add this symbol to the proper page vector */
 		page_desc_t *page_desc = NULL;
-		page_desc = vector_for_each(&all_pages, (vector_for_each_callback_t *) find_existing_page, (void *) get_base_page(addr));
+		page_desc = vector_for_each(&all_pages, (vector_for_each_callback_t *) find_existing_page, (void *) get_base_page(sd->addr));
 
 		/* If we have seen this page before then
 		 * add the symbol to the existing entry */
-		if(page_desc == NULL) {
-			page_desc = (page_desc_t *) malloc(sizeof(page_desc_t));
-			page_desc->page = get_base_page(addr);
-			page_desc->dropped = false;
-			page_desc->contains_wls = sd->whitelist;
-			strncpy(page_desc->library, info->dlpi_name, sizeof(page_desc->library));
-			vector_init(&page_desc->symbols);
-			vector_push(&page_desc->symbols, sd);
-			vector_push(&all_pages, page_desc);
-		} else {
-			page_desc->contains_wls = sd->whitelist;
-			vector_push(&page_desc->symbols, sd);
+		page_desc = add_symbol_to_page(page_desc, sd, info->dlpi_name);
+
+		/* This function overlaps a page boundary, add
+		 * the next page to the list as well */
+		if(page_desc->page + getpagesize() < addr + sd->size) {
+			page_desc_t *next_page = NULL;
+			uintptr_t addr = sd->addr;
+			sd->addr += getpagesize();
+			next_page = vector_for_each(&all_pages, (vector_for_each_callback_t *) find_existing_page, (void *) get_base_page(sd->addr));
+			next_page = add_symbol_to_page(next_page, sd, info->dlpi_name);
+			sd->addr = addr;
+			LOG("Symbol %s straddles from 0x%lx to 0x%lx", &strtab[sym->st_name], page_desc->page, next_page->page);
 		}
 
 		sym++;
 	}
 
 	return OK;
+}
+
+void *add_symbol_to_page(page_desc_t *page_desc, symbol_entry_t *sd, const char *lib_name) {
+	if(page_desc == NULL) {
+		page_desc = (page_desc_t *) malloc(sizeof(page_desc_t));
+		page_desc->page = get_base_page(sd->addr);
+		page_desc->dropped = false;
+		page_desc->contains_wls = sd->whitelist;
+
+		if(lib_name != NULL) {
+			strncpy(page_desc->library, lib_name, sizeof(page_desc->library));
+		}
+
+		vector_init(&page_desc->symbols);
+		vector_push(&page_desc->symbols, sd);
+		vector_push(&all_pages, page_desc);
+	} else {
+		page_desc->contains_wls = sd->whitelist;
+		vector_push(&page_desc->symbols, sd);
+	}
+
+	return page_desc;
 }
 
 /* TODO - This function is called by a thread and is not

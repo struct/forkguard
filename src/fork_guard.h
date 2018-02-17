@@ -109,15 +109,15 @@ typedef struct _tracer_thread_ctx_t {
 vector_t tracer_threads;
 
 uintptr_t get_base_page(uintptr_t addr);
-int32_t scan_shared_objects();
-int32_t drop_functions(char *symbol_list);
-int32_t drop_page_on_fork(uintptr_t page, bool enforce);
+int32_t env_to_int(char *string);
+int32_t advise_page_on_fork(uintptr_t page, bool enforce);
 int32_t read_symbol_list(char *symbol_file);
 int32_t append_symbol_list(char *symbol_file, char *library, char *symbol);
 int32_t child_fork_trace(pid_t child_pid);
 void vector_pointer_free(void *p);
 void vector_free_internal(void *p);
 void free_fg_vectors();
+void *add_symbol_to_page(page_desc_t *page_desc, symbol_entry_t *sd, const char *lib_name);
 void *drop_pages(void *p, void *data);
 void *page_stats(void *p, void *data);
 void *add_whitelist_to_pages(void *p, void *data);
