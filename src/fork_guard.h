@@ -17,6 +17,10 @@
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <sys/user.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #include "vector.h"
 
@@ -32,6 +36,8 @@
 /* Environment variables for controlling Fork Guard */
 #define FG_WHITELIST "FG_WHITELIST"
 #define FG_TRACING_MODE "FG_TRACING_MODE"
+#define FG_DUMPSTATS "FG_DUMPSTATS"
+#define FG_PARSE_EXE_SYMS "FG_PARSE_EXE_SYMS"
 
 #if DEBUG
 	#define LOG_ERROR(msg, ...)	\
@@ -71,6 +77,9 @@ typedef struct _symbol_entry_t {
 /* We store them seperately to speed up searching */
 vector_t function_whitelist;
 
+/* Stored symbols from on disk .symtab parsing */
+vector_t symtab_functions;
+
 bool g_symbols_parsed;
 bool g_whitelist_parsed;
 bool g_stats_dumped;
@@ -108,12 +117,22 @@ typedef struct _tracer_thread_ctx_t {
 
 vector_t tracer_threads;
 
+/* Base address of the main exe */
+uintptr_t g_exe_load_address;
+
+pthread_mutex_t whitelist_lock;
+
+const char program_name[1024];
+
 uintptr_t get_base_page(uintptr_t addr);
 int32_t env_to_int(char *string);
 int32_t advise_page_on_fork(uintptr_t page, bool enforce);
 int32_t read_symbol_list(char *symbol_file);
 int32_t append_symbol_list(char *symbol_file, char *library, char *symbol);
 int32_t child_fork_trace(pid_t child_pid);
+int32_t handle_symbol(uintptr_t addr, symbol_entry_t *sd, const char *lib_name);
+int32_t parse_file_symtab(const char *path);
+void symbol_entry_copy(symbol_entry_t *to, symbol_entry_t *from);
 void vector_pointer_free(void *p);
 void vector_free_internal(void *p);
 void free_fg_vectors();
@@ -124,6 +143,8 @@ void *add_whitelist_to_pages(void *p, void *data);
 void *check_dropped_pages(void *p, void *data);
 void *find_existing_page(void *p, void *data);
 void *is_symbol_whitelisted(void *p, void *data);
+void *each_symtab(void *p, void *data);
+static int32_t get_exe_load_address(struct dl_phdr_info *info, size_t size, void *data);
 static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, void *data);
 static int32_t build_whitelist_callback(struct dl_phdr_info *info, size_t size, void *data);
 

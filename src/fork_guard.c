@@ -21,10 +21,31 @@ __attribute__((constructor)) void fg_ctor() {
 	/* We only want to dump page stats once */
 	g_stats_dumped = false;
 
+	/* The base load address of the main executable */
+	g_exe_load_address = 0;
+
+	/* Call into the linker to set g_exe_load_address */
+	dl_iterate_phdr(get_exe_load_address, NULL);
+
 	/* Initialize the symbol vectors */
 	vector_init(&function_whitelist);
 	vector_init(&all_pages);
 	vector_init(&tracer_threads);
+
+	FILE *fd = fopen("/proc/self/cmdline", "r");
+	fgets((char *) program_name, sizeof(program_name), fd);
+	fclose(fd);
+	LOG("Program name is [%s]", program_name);
+}
+
+static int32_t get_exe_load_address(struct dl_phdr_info *info, size_t size, void *data) {
+	if(strlen(info->dlpi_name) == 0) {
+		LOG("Setting executable load address to %lx [%s]", info->dlpi_addr, info->dlpi_name);
+		g_exe_load_address = info->dlpi_addr;
+		return ERROR;
+	}
+
+	return OK;
 }
 
 /* Using a dtor in Fork Guard introduces some annoying
@@ -137,7 +158,13 @@ pid_t fork(void) {
 	pid_t child_pid;
 	char *fg_whitelist = getenv(FG_WHITELIST);
 
-	/* Handle the whitelist */
+	/* We only want to parse the symtab on disk once */
+	if(getenv(FG_PARSE_EXE_SYMS) && vector_used(&symtab_functions) == 0) {
+		parse_file_symtab(getenv(FG_PARSE_EXE_SYMS));
+	}
+
+	/* Handle the whitelist. We do this at the time of fork
+	 * because it guarantees all libraries have been loaded */
 	if(fg_whitelist != NULL && g_whitelist_parsed == false) {
 		read_symbol_list(fg_whitelist);
 		g_whitelist_parsed = true;
@@ -147,7 +174,7 @@ pid_t fork(void) {
 	int32_t ret = 0;
 
 	/* Gather symbols if we haven't yet. We only do this
-	 * once. TOOD: This should be configurable */
+	 * once. TODO: This should be configurable */
 	if(g_symbols_parsed == false) {
 		dl_iterate_phdr(fork_guard_phdr_callback, NULL);
 		g_symbols_parsed = true;
@@ -165,7 +192,7 @@ pid_t fork(void) {
 
 	vector_for_each(&all_pages, (vector_for_each_callback_t *) drop_pages, NULL);
 
-	if(getenv("FG_DUMPSTATS") && g_stats_dumped == false) {
+	if(getenv(FG_DUMPSTATS) && g_stats_dumped == false) {
 		g_stats_dumped = true;
 		total_pages = 0;
 		pages_whitelisted = 0;
@@ -210,6 +237,7 @@ void vector_pointer_free(void *p) {
 }
 
 void vector_free_internal(void *p) {
+	/* TODO - fix these frees */
 	/*page_desc_t *page = (page_desc_t *) p;
 	vector_delete_all(&page->symbols, (vector_delete_callback_t *) vector_pointer_free);
 	vector_free(&page->symbols);*/
@@ -361,7 +389,7 @@ void *check_dropped_pages(void *p, void *data) {
 			vector_push(&function_whitelist, se);
 
 			/* Append the offset to the whitelist file if there is one */
-			int32_t aret = append_symbol_list(getenv("FG_WHITELIST"), page->library, se->name);
+			int32_t aret = append_symbol_list(getenv(FG_WHITELIST), page->library, se->name);
 
 			if(aret == ERROR) {
 				LOG_ERROR("Failed to append library to whitelist");
@@ -420,38 +448,134 @@ void *find_existing_page(void *p, void *data) {
 	return NULL;
 }
 
+/* Takes a symbol by symbol_entry_t and first checks it against the
+ * function whitelist. If its not found then the symbol is added to
+ * the appropriate page_desc_t entry */
+int32_t handle_symbol(uintptr_t addr, symbol_entry_t *sd, const char *lib_name) {
+	/* We previously built a symbol whitelist. This
+	 * is where we check that list to see if it has
+	 * the symbol we just found. If it does we mark
+	 * this symbol entry as whitelisted */
+	if((vector_for_each(&function_whitelist, (vector_for_each_callback_t *) is_function_whitelisted, 
+			(void *) addr)) != NULL) {
+		sd->whitelist = true;
+	} else {
+		sd->whitelist = false;
+	}
+
+	/* Add this symbol to the proper page vector */
+	page_desc_t *page_desc = NULL;
+	page_desc = vector_for_each(&all_pages, (vector_for_each_callback_t *) find_existing_page, (void *) get_base_page(sd->addr));
+
+	/* If we have seen this page before then
+	 * add the symbol to the existing entry */
+	page_desc = add_symbol_to_page(page_desc, sd, lib_name);
+
+	/* This function overlaps a page boundary, add
+	 * the next page to the list as well */
+	if(page_desc->page + getpagesize() < addr + sd->size) {
+		page_desc_t *next_page = NULL;
+		uintptr_t addr = sd->addr;
+		sd->addr += getpagesize();
+		next_page = vector_for_each(&all_pages, (vector_for_each_callback_t *) find_existing_page, (void *) get_base_page(sd->addr));
+		next_page = add_symbol_to_page(next_page, sd, lib_name);
+		sd->addr = addr;
+	}
+
+	return 0;
+}
+
 /* Invoked via dl_iterate_phdr for each loaded ELF object */
 static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, void *data) {
-	if(strlen(info->dlpi_name) == 0) {
+	const char *lib_name = "unknown_object";
+
+	if(info->dlpi_addr == 0) {
 		return 0;
 	}
 
-	LOG("Found .so [%s] @ 0x%lx", info->dlpi_name, info->dlpi_addr);
+	if(strlen(info->dlpi_name) != 0) {
+		lib_name = info->dlpi_name;
+	} else {
+		/* This is a disgusting hack. When dlpi_name is empty
+		 * the first time its our executable. Any other time
+		 * its probably the vdso. Theres no supported way of
+		 * knowing if we are looking at the vdso or not */
+		if(info->dlpi_addr != g_exe_load_address) {
+			return 0;
+		}
+	}
+
+	uintptr_t load_address = info->dlpi_addr;
+
+	/* The main executable may appear to be loaded at 0. We
+	 * need to fix that up by iterating for the right PT_LOAD
+	 * segment and adding the virtual address */
+	if(!load_address) {
+		for(uint32_t i = 0; i < info->dlpi_phnum; i++) {
+			if(info->dlpi_phdr[i].p_type == PT_LOAD) {
+				load_address += info->dlpi_phdr[i].p_vaddr;
+				break;
+			}
+		}
+	}
+
+	LOG("Found mapped ELF [%s] @ 0x%lx", lib_name, load_address);
 
 	ElfW(Phdr*) phdr = NULL;
 
 	/* First iterate through the program heaers for the
 	 * PT_DYNAMIC segment. We need it to find symbols */
-	for(int i = 0; i < info->dlpi_phnum; i++) {
+	for(uint32_t i = 0; i < info->dlpi_phnum; i++) {
 		if(info->dlpi_phdr[i].p_type == PT_DYNAMIC) {
 			phdr = (ElfW(Phdr*)) &info->dlpi_phdr[i];
-			LOG("Found PT_DYNAMIC segment @ %p", phdr);
+			LOG("Found PT_DYNAMIC segment @ %p %lx", phdr, info->dlpi_phdr[i].p_vaddr);
 			break;
 		}
 	}
 
-	ElfW(Dyn*) dyn = (ElfW(Dyn*)) (phdr->p_vaddr + info->dlpi_addr);
+	if(phdr == NULL) {
+		LOG("Got a NULL PT_DYNAMIC segment");
+		return 0;
+	}
+
+	ElfW(Dyn*) dyn = (ElfW(Dyn*))(phdr->p_vaddr + load_address);
 	ElfW(Sym*) sym = NULL;
 	ElfW(Word) symbol_count = 0;
 	ElfW(Word*) dt_hash = NULL;
+	ElfW(Word*) dt_gnu_hash = NULL;
 	char *strtab = NULL;
 
 	/* Iterate through the dynamic segment to get symbols */
-	for(int i=0; i < (phdr->p_filesz/sizeof(ElfW(Dyn))); i++) {
+	for(uint32_t i = 0; i < (phdr->p_filesz/sizeof(ElfW(Dyn))); i++) {
 		if(dyn[i].d_tag == DT_HASH) {
 			dt_hash = (ElfW(Word*)) dyn[i].d_un.d_ptr;
+
+			if(dt_hash == NULL) {
+				continue;
+			}
+
 			symbol_count = dt_hash[1];
-			LOG("Number of symbols: %d", symbol_count);
+			LOG("DT_HASH Number of symbols: %d", symbol_count);
+		}
+
+		if(dyn[i].d_tag == DT_GNU_HASH) {
+			dt_gnu_hash = (ElfW(Word *)) dyn[i].d_un.d_ptr;
+			const uint32_t nbuckets = dt_gnu_hash[0];
+			const uint32_t bloom_size = dt_gnu_hash[2];
+			const uint64_t* bloom = (void*) &dt_gnu_hash[4];
+			const uint32_t* buckets = (void*) &bloom[bloom_size];
+
+			/* This is good enough to get the size of the dynsym but
+			 * it won't tell us total number of symbols including the
+			 * the symtab. If we want the symtab for the main exe we
+			 * to parse it from disk */
+			for(uint32_t index = 0; index < nbuckets; index++) {
+				if(buckets[index] > symbol_count) {
+					symbol_count = buckets[index];
+				}
+			}
+
+			LOG("DT_GNU_HASH Number of symbols: %d", symbol_count);
 		}
 
 		if(dyn[i].d_tag == DT_SYMTAB) {
@@ -468,62 +592,29 @@ static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, 
 		return 0;
 	}
 
-	//LOG("Found symbol table @ %p, number of symbols %d", sym, symbol_count);
+	LOG("Found symbol table @ %p, number of symbols %d", sym, symbol_count);
 
-	for(int i=0; i < symbol_count; i++) {
-		uintptr_t addr = info->dlpi_addr+sym->st_value;
-
+	for(int i = 0; i < symbol_count; i++, sym++) {
+		uintptr_t addr = load_address + sym->st_value;
 		/* We only care about symbols of type STT_FUNC because
 		 * they likely point at executable code pages. Functions
-		 * with a size of 0 are likely imports */
+		 * with a size of 0 likely imported */
 		if((sym->st_info & 0xf) != STT_FUNC || sym->st_size == 0) {
-			sym++;
 			continue;
 		}
 
-		LOG("Symbol value base addr = 0x%lx [%s][%d]: 0x%lx -> 0x%lx [%s]", get_base_page(addr), info->dlpi_name, i,
-			sym->st_value, info->dlpi_addr+sym->st_value, &strtab[sym->st_name]);
+		LOG("Symbol value base addr = 0x%lx [%s][%d]: 0x%lx -> 0x%lx [%s]", get_base_page(addr), lib_name, i,
+			sym->st_value, load_address + sym->st_value, &strtab[sym->st_name]);
 
 		symbol_entry_t *sd = (symbol_entry_t *) malloc(sizeof(symbol_entry_t));
 		memset(sd, 0x0, sizeof(symbol_entry_t));
 		sd->addr = addr;
-		sd->base_addr = info->dlpi_addr;
+		sd->base_addr = load_address;
 		sd->value = sym->st_value;
 		sd->size = sym->st_size;
 		memcpy(sd->name, &strtab[sym->st_name], strlen(&strtab[sym->st_name]));
 
-		/* We previously built a symbol whitelist. This
-		 * is where we check that list to see if it has
-		 * the symbol we just found. If it does we mark
-		 * this symbol entry as whitelisted */
-		if((vector_for_each(&function_whitelist, (vector_for_each_callback_t *) is_function_whitelisted, 
-				(void *) addr)) != NULL) {
-			sd->whitelist = true;
-		} else {
-			sd->whitelist = false;
-		}
-
-		/* Add this symbol to the proper page vector */
-		page_desc_t *page_desc = NULL;
-		page_desc = vector_for_each(&all_pages, (vector_for_each_callback_t *) find_existing_page, (void *) get_base_page(sd->addr));
-
-		/* If we have seen this page before then
-		 * add the symbol to the existing entry */
-		page_desc = add_symbol_to_page(page_desc, sd, info->dlpi_name);
-
-		/* This function overlaps a page boundary, add
-		 * the next page to the list as well */
-		if(page_desc->page + getpagesize() < addr + sd->size) {
-			page_desc_t *next_page = NULL;
-			uintptr_t addr = sd->addr;
-			sd->addr += getpagesize();
-			next_page = vector_for_each(&all_pages, (vector_for_each_callback_t *) find_existing_page, (void *) get_base_page(sd->addr));
-			next_page = add_symbol_to_page(next_page, sd, info->dlpi_name);
-			sd->addr = addr;
-			LOG("Symbol %s straddles from 0x%lx to 0x%lx", &strtab[sym->st_name], page_desc->page, next_page->page);
-		}
-
-		sym++;
+		handle_symbol(addr, sd, lib_name);
 	}
 
 	return OK;
@@ -555,6 +646,8 @@ void *add_symbol_to_page(page_desc_t *page_desc, symbol_entry_t *sd, const char 
  * thread safe. We need a mutex to guard against file
  * writes here. */
 int32_t append_symbol_list(char *symbol_file, char *library, char *symbol) {
+	pthread_mutex_lock(&whitelist_lock);
+
 	if(symbol_file == NULL || symbol == NULL) {
 		LOG_ERROR("Symbol list is NULL");
 		return ERROR;
@@ -565,6 +658,7 @@ int32_t append_symbol_list(char *symbol_file, char *library, char *symbol) {
 
 	if(fd == NULL) {
 		LOG_ERROR("Failed to open file %s", symbol_file);
+		pthread_mutex_unlock(&whitelist_lock);
 		return ERROR;		
 	}
 
@@ -574,6 +668,7 @@ int32_t append_symbol_list(char *symbol_file, char *library, char *symbol) {
 	fflush(fd);
 	fclose(fd);
 
+	pthread_mutex_unlock(&whitelist_lock);
 	return OK;
 }
 
@@ -588,40 +683,57 @@ static int32_t build_whitelist_callback(struct dl_phdr_info *info, size_t size, 
 		return ERROR;
 	}
 
-	if(strcmp((char *) sd->base_addr, info->dlpi_name) == 0) {
+	/* We need to handle offsets into the main program.
+	 * This is done by comparing what was specified in
+	 * the symbol whitelist with program_name. If they
+	 * match and this mapping has no dlpi_name then its
+	 * probably our main exe mapping. */
+	if(strcmp((char *) sd->base_addr, info->dlpi_name) == 0 ||
+		((strlen(info->dlpi_name) == 0) && strcmp((char *) sd->base_addr, program_name) == 0)) {
 		sd->base_addr = info->dlpi_addr;
 		sd->addr += sd->base_addr;
-		return 0;
+		return OK;
 	}
 
 	return OK;
 }
 
+void *each_symtab(void *p, void *data) {
+	char *name = (char *) data;
+	symbol_entry_t *sd = (symbol_entry_t *) p;
+
+	if(strcmp(sd->name, name) == 0) {
+		return sd;
+	}
+
+	return NULL;
+}
+
 /* Takes a newline seperated file of symbols and builds
- * a temporary vector for symbol parsing to use later .
+ * a temporary vector for symbol parsing to use later.
  * The whitelist format is simple:
  	- <library path>:symbol
 	- <library path>:<offset>
  */
 int32_t read_symbol_list(char *symbol_file) {
-	if(symbol_file == NULL) {
-		LOG_ERROR("Symbol list is NULL");
-		return ERROR;
-	}
-
-	/* TODO - check the path is legit first. Better error handling etc */
-	FILE *fd = fopen(symbol_file, "r+");
-
-	if(fd == NULL) {
-		LOG_ERROR("Failed to open file %s", symbol_file);
-		return ERROR;
-	}
-
 	char line[512];
 	char library_path[512];
 	char *library_handle = NULL;
 	char *p = NULL;
 	int32_t ret = 0;
+
+	/* TODO - check the path is legit first. Better error handling etc */
+	FILE *fd = fopen(symbol_file, "r+");
+
+	if(symbol_file == NULL) {
+		LOG_ERROR("Symbol list is NULL");
+		return ERROR;
+	}
+
+	if(fd == NULL) {
+		LOG_ERROR("Failed to open file %s", symbol_file);
+		return ERROR;
+	}
 
 	memset(line, 0x0, sizeof(line));
 	memset(library_path, 0x0, sizeof(library_path));
@@ -645,7 +757,12 @@ int32_t read_symbol_list(char *symbol_file) {
 				dlclose(library_handle);
 			}
 
-			library_handle = dlopen(p, RTLD_NOW);
+			/* Passing NULL to dlopen returns a handle to the main program */
+			if(getenv(FG_PARSE_EXE_SYMS) && strcmp(library_path, getenv(FG_PARSE_EXE_SYMS)) == 0) {
+				library_handle = dlopen(NULL, RTLD_NOW);
+			} else {
+				library_handle = dlopen(p, RTLD_NOW);
+			}
 
     		if(library_handle == NULL) {
     			LOG("Failed to get handle for library %s", p);
@@ -685,14 +802,25 @@ int32_t read_symbol_list(char *symbol_file) {
 
 			sd->has_real_symbol = false;
 
-			LOG("Successfully found address [%s] in library [0x%lx] @ 0x%lx", p, sd->base_addr, sd->addr);
+			LOG("Successfully found offset [%s] in library [%s]:[0x%lx] @ 0x%lx", p, library_path, sd->base_addr, sd->addr);
 		} else {
-			sd->addr = (uintptr_t) dlsym(library_handle, p);
+			if(getenv(FG_PARSE_EXE_SYMS) && strcmp(library_path, getenv(FG_PARSE_EXE_SYMS)) == 0) {
+				/* The symbol is in the main executable. Use the stored
+				 * list of symbols from the symtab instead of dlsym */
+				symbol_entry_t *se = vector_for_each(&symtab_functions, (vector_for_each_callback_t *) &each_symtab, p);
 
-			if(sd->addr == 0x0) {
-				LOG("Could not locate symbol [%s]", p);
-				free(sd);
-				continue;
+				if(se != NULL) {
+					symbol_entry_copy(sd, se);
+				}
+			} else {
+				sd->addr = (uintptr_t) dlsym(library_handle, p);
+
+				if(!sd->addr) {
+					LOG("Could not locate symbol [%s]", p);
+					free(sd);
+					continue;
+				}
+
 			}
 
 			Dl_info dlinfo;
@@ -706,8 +834,7 @@ int32_t read_symbol_list(char *symbol_file) {
 			}
 
 			sd->has_real_symbol = true;
-
-			LOG("Successfully found symbol [%s] in library [0x%lx] @ 0x%lx", p, sd->base_addr, sd->addr);
+			LOG("Successfully found symbol [%s] in library [%s]:[0x%lx] @ 0x%lx", p, library_path, sd->base_addr, sd->addr);
 		}
 
 		sd->whitelist = true;
@@ -725,7 +852,121 @@ int32_t read_symbol_list(char *symbol_file) {
 	return OK;
 }
 
+/* Deep copies a symbol_entry_t */
+void symbol_entry_copy(symbol_entry_t *to, symbol_entry_t *from) {
+	to->addr = from->addr;
+	to->base_addr = from->base_addr;
+	to->value = from->value;
+	to->size = from->size;
+	to->whitelist = from->whitelist;
+	to->has_real_symbol = from->has_real_symbol;
+	memcpy(to->name, from->name, sizeof(to->name));
+}
+
 uintptr_t get_base_page(uintptr_t addr) {
 	uintptr_t page_size = getpagesize();
 	return (addr & ~(page_size-1));
+}
+
+/* Parses the symtab of an ELF file on disk and
+ * adds the symbols to the vector */
+int32_t parse_file_symtab(const char *path) {
+	int fd = open(path, O_RDONLY);
+
+	if(fd == ERROR) {
+		LOG("Could not open [%s]", path);
+		return ERROR;
+	}
+
+	struct stat sb;
+	fstat(fd, &sb);
+
+	uintptr_t elf_mem = (uintptr_t) mmap(0, sb.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+
+	if(elf_mem == ERROR) {
+		LOG("Could not mmap [%s]", path);
+		close(fd);
+		return ERROR;
+	}
+
+	ElfW(Ehdr*) elf_header = (ElfW(Ehdr*)) elf_mem;
+
+	if(elf_header->e_ident[EI_MAG0] != 0x7F && elf_header->e_ident[EI_MAG1] != 'E' && 
+			elf_header->e_ident[EI_MAG2] != 'L' && elf_header->e_ident[EI_MAG3] != 'F') {
+		LOG("%s is not an ELF file", path);
+		munmap(elf_header, sb.st_size);
+		close(fd);
+		return ERROR;
+	}
+
+	ElfW(Shdr *) shdr = (ElfW(Shdr *)) (elf_mem + elf_header->e_shoff);
+	ElfW(Shdr *) symtab = NULL;
+	char *shdr_strtab = NULL;
+	char *strtab = NULL;
+
+	for(uint32_t i = 0; i < elf_header->e_shnum; i++, shdr++) {
+		if(shdr->sh_type == SHT_SYMTAB) {
+			symtab = shdr;
+		}
+
+		if(i == elf_header->e_shstrndx) {
+			shdr_strtab = (char *)(elf_mem + shdr->sh_offset);
+		}
+	}
+
+	if(shdr_strtab == NULL) {
+		LOG("Could not find section header strtab");
+		munmap(elf_header, sb.st_size);
+		close(fd);
+		return ERROR;
+	}
+
+	shdr = (ElfW(Shdr *)) (elf_mem + elf_header->e_shoff);
+
+	/* Iterate the section headers one more time to get
+	 * the symtab now that we know the shdr strtab */
+	for(uint32_t i = 0; i < elf_header->e_shnum; i++, shdr++) {
+		if(shdr->sh_type == SHT_STRTAB && i != elf_header->e_shstrndx &&
+				(strcmp(&shdr_strtab[shdr->sh_name], ".strtab") == 0)) {
+			strtab = (char *)(elf_mem + shdr->sh_offset);
+		}
+	}
+
+	if(symtab == NULL || strtab == NULL) {
+		LOG("Could not find a symtab");
+		munmap(elf_header, sb.st_size);
+		close(fd);
+		return ERROR;
+	}
+
+	ElfW(Sym *) sym = (ElfW(Sym*)) (elf_mem + symtab->sh_offset);
+
+	/* This is a little gross but its reliable because we have
+	 * the section header on disk and not a segment in memory */
+	uint32_t symbol_count = (symtab->sh_size / sizeof(ElfW(Sym)));
+
+	for(uint32_t i = 0; i < symbol_count; i++, sym++) {
+		if((sym->st_info & 0xf) != STT_FUNC || sym->st_size == 0) {
+			continue;
+		}
+
+		uintptr_t addr = g_exe_load_address + sym->st_value;
+
+		LOG("Symbol value base addr = 0x%lx [%s][%d]: 0x%lx -> 0x%lx [%s]", get_base_page(addr), path, i,
+			sym->st_value, g_exe_load_address + sym->st_value, &strtab[sym->st_name]);
+
+		symbol_entry_t *sd = (symbol_entry_t *) malloc(sizeof(symbol_entry_t));
+		memset(sd, 0x0, sizeof(symbol_entry_t));
+		sd->addr = addr;
+		sd->base_addr = g_exe_load_address;
+		sd->value = sym->st_value;
+		sd->size = sym->st_size;
+		memcpy(sd->name, &strtab[sym->st_name], strlen(&strtab[sym->st_name]));
+		vector_push(&symtab_functions, sd);
+	}
+
+	munmap(elf_header, sb.st_size);
+	close(fd);
+
+	return OK;
 }

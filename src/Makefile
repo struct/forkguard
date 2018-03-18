@@ -2,6 +2,7 @@
 
 CC = clang
 CFLAGS = -Wall
+EXE_CFLAGS = -fPIE -pie
 DEBUG_FLAGS = -DDEBUG -ggdb
 LIBRARY = -fPIC -shared -ldl -lpthread
 ASAN = -fsanitize=address
@@ -21,17 +22,17 @@ library_debug: clean
 ## Build the unit test
 test: clean library
 	mkdir -p ../build/
-	$(CC) $(CFLAGS) $(UNIT_TEST) $(INCLUDE_DIR) fork_guard_test.c vector.c -o ../build/fork_guard_test -lpthread
+	$(CC) $(CFLAGS) $(EXE_CFLAGS) $(INCLUDE_DIR) fork_guard_test.c vector.c -o ../build/fork_guard_test -lpthread
 
 ## Build a debug version of the unit test
 debug_test: clean library_debug
 	mkdir -p ../build/
-	$(CC) $(CFLAGS) $(UNIT_TEST) $(INCLUDE_DIR) $(DEBUG_FLAGS) fork_guard_test.c vector.c -o ../build/fork_guard_test -lpthread
+	$(CC) $(CFLAGS) $(EXE_CFLAGS) $(INCLUDE_DIR) $(DEBUG_FLAGS) fork_guard_test.c vector.c -o ../build/fork_guard_test -lpthread
 
 ## Build the vector tests
 vector_test:
 	mkdir -p ../build/
-	$(CC) $(ASAN) $(DEBUG_FLAGS) $(CFLAGS) -o ../build/vector_test vector.c -DVECTOR_UNIT_TEST=1
+	$(CC) $(ASAN) $(EXE_CFLAGS) $(DEBUG_FLAGS) $(CFLAGS) -o ../build/vector_test vector.c -DVECTOR_UNIT_TEST=1
 
 clean:
 	rm -rf ../build/
