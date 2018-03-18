@@ -143,10 +143,12 @@ void *add_whitelist_to_pages(void *p, void *data) {
 		page_desc->contains_wls = true;
 		strncpy(page_desc->library, "unknown", sizeof(page_desc->library));
 		vector_init(&page_desc->symbols);
+		sd->ref_count++;
 		vector_push(&page_desc->symbols, sd);
 		vector_push(&all_pages, page_desc);
 	} else {
 		page_desc->contains_wls = true;
+		sd->ref_count++;
 		vector_push(&page_desc->symbols, sd);
 	}
 
@@ -236,17 +238,28 @@ void vector_pointer_free(void *p) {
 	free(p);
 }
 
+/* Some vectors (function_whitelist, all_pages) each hold
+ * the same symbol_entry_t pointers. We don't want to free
+ * them twice so we manage their lifetime with ref count */
+void vector_symbol_free(void *p) {
+	symbol_entry_t *se = (symbol_entry_t *) p;
+	se->ref_count--;
+
+	if(se->ref_count < 0) {
+		free(se);
+	}
+}
+
 void vector_free_internal(void *p) {
-	/* TODO - fix these frees */
-	/*page_desc_t *page = (page_desc_t *) p;
-	vector_delete_all(&page->symbols, (vector_delete_callback_t *) vector_pointer_free);
-	vector_free(&page->symbols);*/
+	page_desc_t *page = (page_desc_t *) p;
+	vector_delete_all(&page->symbols, (vector_delete_callback_t *) vector_symbol_free);
+	vector_free(&page->symbols);
 	free(p);
 }
 
 /* Free some vectors we allocated earlier */
 void free_fg_vectors() {
-	vector_delete_all(&function_whitelist, (vector_delete_callback_t *) vector_pointer_free);
+	vector_delete_all(&function_whitelist, (vector_delete_callback_t *) vector_symbol_free);
 	vector_free(&function_whitelist);
 
 	vector_delete_all(&all_pages, (vector_delete_callback_t *) vector_free_internal);
@@ -386,6 +399,7 @@ void *check_dropped_pages(void *p, void *data) {
 			snprintf(sym_buf, sizeof(sym_buf), "0x%lx", (uintptr_t) se->addr - (uintptr_t) dlinfo.dli_fbase);
 			strncpy(se->name, sym_buf, sizeof(se->name));
 
+			se->ref_count++;
 			vector_push(&function_whitelist, se);
 
 			/* Append the offset to the whitelist file if there is one */
@@ -632,10 +646,12 @@ void *add_symbol_to_page(page_desc_t *page_desc, symbol_entry_t *sd, const char 
 		}
 
 		vector_init(&page_desc->symbols);
+		sd->ref_count++;
 		vector_push(&page_desc->symbols, sd);
 		vector_push(&all_pages, page_desc);
 	} else {
 		page_desc->contains_wls = sd->whitelist;
+		sd->ref_count++;
 		vector_push(&page_desc->symbols, sd);
 	}
 
@@ -840,6 +856,7 @@ int32_t read_symbol_list(char *symbol_file) {
 		sd->whitelist = true;
 		strncpy(sd->name, p, sizeof(sd->name));
 
+		sd->ref_count++;
 		vector_push(&function_whitelist, sd);
 	}
 
@@ -962,6 +979,7 @@ int32_t parse_file_symtab(const char *path) {
 		sd->value = sym->st_value;
 		sd->size = sym->st_size;
 		memcpy(sd->name, &strtab[sym->st_name], strlen(&strtab[sym->st_name]));
+		sd->ref_count++;
 		vector_push(&symtab_functions, sd);
 	}
 

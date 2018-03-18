@@ -72,6 +72,8 @@ typedef struct _symbol_entry_t {
 	char name[MAX_SYMBOL_NAME];
 	/* true if by name, false if by offset */
 	bool has_real_symbol;
+	/* Reference count */
+	int32_t ref_count;
 } symbol_entry_t;
 
 /* We store them seperately to speed up searching */
