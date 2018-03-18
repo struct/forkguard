@@ -267,6 +267,9 @@ void free_fg_vectors() {
 
 	vector_delete_all(&tracer_threads, (vector_delete_callback_t *) vector_pointer_free);
 	vector_free(&tracer_threads);
+
+	vector_delete_all(&symtab_functions, (vector_delete_callback_t *) vector_symbol_free);
+	vector_free(&symtab_functions);
 }
 
 void *child_tracer(void *data) {
