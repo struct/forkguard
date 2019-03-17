@@ -8,8 +8,9 @@
  * pointers and iterating over them quickly. Building
  * abstractions on top of it is very useful */
 
-/* Push a pointer to the vector, resize if necessary */
-void vector_push(vector_t *v, void *ptr) {
+/* Push a pointer to the vector, resize if necessary.
+ * Returns this new members index in the vector */
+int vector_push(vector_t *v, void *ptr) {
     if(v->size == 0) {
         v->size = VECTOR_MIN_SIZE;
         v->data = (void *) malloc(sizeof(void *) * v->size);
@@ -20,7 +21,7 @@ void vector_push(vector_t *v, void *ptr) {
     if(v->free_slot != 0) {
         v->data[v->free_slot] = ptr;
         v->free_slot = 0;
-        return;
+        return v->free_slot;
     }
 
     if(v->end_slot == v->size) {
@@ -30,6 +31,7 @@ void vector_push(vector_t *v, void *ptr) {
 
     v->data[v->end_slot] = ptr;
     v->end_slot++;
+    return v->end_slot;
 }
 
 /* Returns and clears the last member of the vector */

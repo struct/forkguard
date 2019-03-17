@@ -522,6 +522,11 @@ static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, 
 		}
 	}
 
+	if(strlen(lib_name) >= strlen("linux-vdso") && strncmp(lib_name, "linux-vdso", 10) == 0) {
+		LOG("Skipping VDSO (%s)", lib_name);
+		return 0;
+	}
+
 	uintptr_t load_address = info->dlpi_addr;
 
 	/* The main executable may appear to be loaded at 0. We
