@@ -1,5 +1,5 @@
 /* Reference implementation of fork guard.
- * Copyright Chris Rohlf - 2017 */
+ * Copyright Chris Rohlf - 2017-2019 */
 
 #include "fork_guard.h"
 
@@ -545,7 +545,7 @@ static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, 
 
 	ElfW(Phdr*) phdr = NULL;
 
-	/* First iterate through the program heaers for the
+	/* First iterate through the program headers for the
 	 * PT_DYNAMIC segment. We need it to find symbols */
 	for(uint32_t i = 0; i < info->dlpi_phnum; i++) {
 		if(info->dlpi_phdr[i].p_type == PT_DYNAMIC) {

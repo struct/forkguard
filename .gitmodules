@@ -1,0 +1,3 @@
+[submodule "src/vector_t"]
+	path = src/vector_t
+	url = https://github.com/struct/vector_t

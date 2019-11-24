@@ -1,5 +1,5 @@
 /* Reference implementation of fork guard.
- * Copyright Chris Rohlf - 2017 */
+ * Copyright Chris Rohlf - 2017-2019 */
 
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -22,7 +22,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-#include "vector.h"
+#include "vector_t/vector.h"
 
 #define OK 0
 #define ERROR -1
