@@ -27,6 +27,14 @@ __attribute__((constructor)) void fg_ctor() {
 	/* Call into the linker to set g_exe_load_address */
 	dl_iterate_phdr(get_exe_load_address, NULL);
 
+    g_parse_exe_syms = getenv(FG_PARSE_EXE_SYMS);
+    g_whitelist = getenv(FG_WHITELIST);
+
+    /* We only want to parse the symtab on disk once */
+    if(g_parse_exe_syms) {
+        parse_file_symtab(g_parse_exe_syms);
+    }
+
 	/* Initialize the symbol vectors */
 	vector_init(&function_whitelist);
 	vector_init(&all_pages);
@@ -73,7 +81,7 @@ int32_t advise_page_on_fork(uintptr_t page, bool enforce) {
 	/* Make sure we are working the base page */
 	uintptr_t p = get_base_page(page);
 
-	/* This should be configurable for newer kernels */
+	/* TODO: This should be configurable for newer kernels (zero etc) */
 	if(enforce == true) {
 		ret = madvise((void *) p, getpagesize(), MADV_DONTFORK);
 	} else {
@@ -158,17 +166,11 @@ void *add_whitelist_to_pages(void *p, void *data) {
 /* Overload the fork function in libc */
 pid_t fork(void) {
 	pid_t child_pid;
-	char *fg_whitelist = getenv(FG_WHITELIST);
-
-	/* We only want to parse the symtab on disk once */
-	if(getenv(FG_PARSE_EXE_SYMS) && vector_used(&symtab_functions) == 0) {
-		parse_file_symtab(getenv(FG_PARSE_EXE_SYMS));
-	}
 
 	/* Handle the whitelist. We do this at the time of fork
 	 * because it guarantees all libraries have been loaded */
-	if(fg_whitelist != NULL && g_whitelist_parsed == false) {
-		read_symbol_list(fg_whitelist);
+	if(g_whitelist != NULL && g_whitelist_parsed == false) {
+		read_symbol_list(g_whitelist);
 		g_whitelist_parsed = true;
 	}
 
@@ -240,7 +242,7 @@ void vector_pointer_free(void *p) {
 
 /* Some vectors (function_whitelist, all_pages) each hold
  * the same symbol_entry_t pointers. We don't want to free
- * them twice so we manage their lifetime with ref count */
+ * them twice so we manage their lifetime with a ref count */
 void vector_symbol_free(void *p) {
 	symbol_entry_t *se = (symbol_entry_t *) p;
 	se->ref_count--;
@@ -272,6 +274,9 @@ void free_fg_vectors() {
 	vector_free(&symtab_functions);
 }
 
+/* This function runs in a thread dedicated to
+ * each child process spawned by the parent. It
+ * is created after the child process is spawned. */
 void *child_tracer(void *data) {
 	tracer_thread_ctx_t *tctx = (tracer_thread_ctx_t *) data;
 	pid_t child_pid = tctx->child_pid;
@@ -360,7 +365,7 @@ void *child_tracer(void *data) {
 /* Used by the parent in tracing mode to check
  * our list of known dropped pages for a crash
  * address. If found it creates a new entry in
- * the symbol whitelist, & reverses the behavior
+ * the symbol whitelist and reverses the behavior
  * of fork via madvise */
 void *check_dropped_pages(void *p, void *data) {
 	uintptr_t ip = (uintptr_t) data;
@@ -371,6 +376,16 @@ void *check_dropped_pages(void *p, void *data) {
 	uintptr_t ip_page = get_base_page(ip);
 
 	if(page->page == ip_page) {
+        /* We check all register values so we are bound to
+         * be repeating this operation multiple times for
+         * a single page. This is a cheap optimization to
+         * avoid multiple lookups in a row */
+        if(g_ip_page_cache == ip_page) {
+            return page;
+        } else {
+            g_ip_page_cache = ip_page;
+        }
+
 		ret = dladdr((void *) ip, &dlinfo);
 
 		if(ret != 0) {
@@ -385,6 +400,7 @@ void *check_dropped_pages(void *p, void *data) {
 
 			/* Reverse the mapping behavior on fork via madvise */
 			advise_page_on_fork(page->page, false);
+            page->dropped = false;
 
 			/* Create a new entry in the symbol whitelist vector */
 			symbol_entry_t *se = (symbol_entry_t *) malloc(sizeof(symbol_entry_t));
@@ -406,7 +422,7 @@ void *check_dropped_pages(void *p, void *data) {
 			vector_push(&function_whitelist, se);
 
 			/* Append the offset to the whitelist file if there is one */
-			int32_t aret = append_symbol_list(getenv(FG_WHITELIST), page->library, se->name);
+			int32_t aret = append_symbol_list(g_whitelist, page->library, se->name);
 
 			if(aret == ERROR) {
 				LOG_ERROR("Failed to append library to whitelist");
@@ -423,7 +439,7 @@ void *check_dropped_pages(void *p, void *data) {
 }
 
 /* Fork Guard can be configured to spawn a thread
- * that monitors the child process. If it crashes
+ * that monitors each child process. If it crashes
  * in any of the areas of memory previously removed
  * this will be logged */
 int32_t child_fork_trace(pid_t child_pid) {
@@ -436,7 +452,6 @@ int32_t child_fork_trace(pid_t child_pid) {
 
 	/* Spawn a thread that will trace the child process */
 	ret = pthread_create(&tracer_thread_ctx->ctx, NULL, &child_tracer, (void *) tracer_thread_ctx);
-
 	ret = pthread_join(tracer_thread_ctx->ctx, NULL);
 
 	return ret;
@@ -481,8 +496,7 @@ int32_t handle_symbol(uintptr_t addr, symbol_entry_t *sd, const char *lib_name) 
 	}
 
 	/* Add this symbol to the proper page vector */
-	page_desc_t *page_desc = NULL;
-	page_desc = vector_for_each(&all_pages, (vector_for_each_callback_t *) find_existing_page, (void *) get_base_page(sd->addr));
+	page_desc_t *page_desc = vector_for_each(&all_pages, (vector_for_each_callback_t *) find_existing_page, (void *) get_base_page(sd->addr));
 
 	/* If we have seen this page before then
 	 * add the symbol to the existing entry */
@@ -527,6 +541,12 @@ static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, 
 		return 0;
 	}
 
+    /* basename() can modify the underlying
+     * buffer so we need to copy it here */
+    char tmp_path[256];
+    strncpy(tmp_path, lib_name, 255);
+    lib_name = basename(tmp_path);
+
 	uintptr_t load_address = info->dlpi_addr;
 
 	/* The main executable may appear to be loaded at 0. We
@@ -543,24 +563,24 @@ static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, 
 
 	LOG("Found mapped ELF [%s] @ 0x%lx", lib_name, load_address);
 
-	ElfW(Phdr*) phdr = NULL;
+	ElfW(Phdr*) dynamic_phdr = NULL;
 
 	/* First iterate through the program headers for the
 	 * PT_DYNAMIC segment. We need it to find symbols */
 	for(uint32_t i = 0; i < info->dlpi_phnum; i++) {
 		if(info->dlpi_phdr[i].p_type == PT_DYNAMIC) {
-			phdr = (ElfW(Phdr*)) &info->dlpi_phdr[i];
-			LOG("Found PT_DYNAMIC segment @ %p %lx", phdr, info->dlpi_phdr[i].p_vaddr);
+			dynamic_phdr = (ElfW(Phdr*)) &info->dlpi_phdr[i];
+			LOG("Found PT_DYNAMIC segment @ %p %lx", dynamic_phdr, info->dlpi_phdr[i].p_vaddr);
 			break;
 		}
 	}
 
-	if(phdr == NULL) {
+	if(dynamic_phdr == NULL) {
 		LOG("Got a NULL PT_DYNAMIC segment");
 		return 0;
 	}
 
-	ElfW(Dyn*) dyn = (ElfW(Dyn*))(phdr->p_vaddr + load_address);
+	ElfW(Dyn*) dyn = (ElfW(Dyn*))(dynamic_phdr->p_vaddr + load_address);
 	ElfW(Sym*) sym = NULL;
 	ElfW(Word) symbol_count = 0;
 	ElfW(Word*) dt_hash = NULL;
@@ -568,7 +588,7 @@ static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, 
 	char *strtab = NULL;
 
 	/* Iterate through the dynamic segment to get symbols */
-	for(uint32_t i = 0; i < (phdr->p_filesz/sizeof(ElfW(Dyn))); i++) {
+	for(uint32_t i = 0; i < (dynamic_phdr->p_filesz/sizeof(ElfW(Dyn))); i++) {
 		if(dyn[i].d_tag == DT_HASH) {
 			dt_hash = (ElfW(Word*)) dyn[i].d_un.d_ptr;
 
@@ -589,8 +609,8 @@ static int32_t fork_guard_phdr_callback(struct dl_phdr_info *info, size_t size, 
 
 			/* This is good enough to get the size of the dynsym but
 			 * it won't tell us total number of symbols including the
-			 * the symtab. If we want the symtab for the main exe we
-			 * to parse it from disk */
+			 * the symtab. If we want the symtab we need to parse it
+			 * from disk */
 			for(uint32_t index = 0; index < nbuckets; index++) {
 				if(buckets[index] > symbol_count) {
 					symbol_count = buckets[index];
@@ -666,9 +686,6 @@ void *add_symbol_to_page(page_desc_t *page_desc, symbol_entry_t *sd, const char 
 	return page_desc;
 }
 
-/* TODO - This function is called by a thread and is not
- * thread safe. We need a mutex to guard against file
- * writes here. */
 int32_t append_symbol_list(char *symbol_file, char *library, char *symbol) {
 	pthread_mutex_lock(&whitelist_lock);
 
@@ -677,13 +694,15 @@ int32_t append_symbol_list(char *symbol_file, char *library, char *symbol) {
 		return ERROR;
 	}
 
+    library = basename(library);
+
 	/* TODO - check the path is legit first. Better error handling etc */
 	FILE *fd = fopen(symbol_file, "a");
 
 	if(fd == NULL) {
 		LOG_ERROR("Failed to open file %s", symbol_file);
 		pthread_mutex_unlock(&whitelist_lock);
-		return ERROR;		
+		return ERROR;
 	}
 
 	LOG("Appending to whitelist: [%s:%s]", library, symbol);
@@ -716,7 +735,7 @@ static int32_t build_whitelist_callback(struct dl_phdr_info *info, size_t size, 
 		((strlen(info->dlpi_name) == 0) && strcmp((char *) sd->base_addr, program_name) == 0)) {
 		sd->base_addr = info->dlpi_addr;
 		sd->addr += sd->base_addr;
-		return OK;
+		return 1;
 	}
 
 	return OK;
@@ -740,8 +759,8 @@ void *each_symtab(void *p, void *data) {
 	- <library path>:<offset>
  */
 int32_t read_symbol_list(char *symbol_file) {
-	char line[512];
-	char library_path[512];
+	char line[1024];
+	char object_path[512];
 	char *library_handle = NULL;
 	char *p = NULL;
 	int32_t ret = 0;
@@ -760,7 +779,7 @@ int32_t read_symbol_list(char *symbol_file) {
 	}
 
 	memset(line, 0x0, sizeof(line));
-	memset(library_path, 0x0, sizeof(library_path));
+	memset(object_path, 0x0, sizeof(object_path));
 
     while(fgets(line, sizeof(line), fd)) {
     	/* Ignore newlines and comments */
@@ -776,15 +795,16 @@ int32_t read_symbol_list(char *symbol_file) {
 			continue;
 		}
 
-    	if(library_handle == NULL || strcmp(p, library_path) != 0) {
+    	if(library_handle == NULL || strcmp(p, object_path) != 0) {
     		if(library_handle != NULL) {
 				dlclose(library_handle);
 			}
 
 			/* Passing NULL to dlopen returns a handle to the main program */
-			if(getenv(FG_PARSE_EXE_SYMS) && strcmp(library_path, getenv(FG_PARSE_EXE_SYMS)) == 0) {
+			if(g_parse_exe_syms && strcmp(object_path, g_parse_exe_syms) == 0) {
 				library_handle = dlopen(NULL, RTLD_NOW);
 			} else {
+                p = basename(p);
 				library_handle = dlopen(p, RTLD_NOW);
 			}
 
@@ -793,15 +813,8 @@ int32_t read_symbol_list(char *symbol_file) {
     			continue;
     		}
 
-    		strncpy(library_path, p, sizeof(library_path));
+    		strncpy(object_path, p, sizeof(object_path));
     		LOG("Looking for symbols in library: %s", p);
-		}
-
-		p = strtok(NULL, ":");
-
-		if(p == NULL) {
-			LOG("Improperly formatted whitelist line [%s]", line);
-			continue;
 		}
 
 		/* We can't create the entire structure
@@ -815,20 +828,20 @@ int32_t read_symbol_list(char *symbol_file) {
 
 			/* base_addr is set to library path because we use
 			 * it in a strncmp in build_whitelist_callback */
-			sd->base_addr = (uintptr_t) library_path;
+			sd->base_addr = (uintptr_t) object_path;
 			ret = dl_iterate_phdr(build_whitelist_callback, (void *) sd);
 
-			if(ret == ERROR) {
-				LOG("Could not locate library base address for [%s]", library_path);
+			if(ret == OK) {
+				LOG("Could not locate library base address for [%s]", object_path);
 				free(sd);
 				continue;
 			}
 
 			sd->has_real_symbol = false;
 
-			LOG("Successfully found offset [%s] in library [%s]:[0x%lx] @ 0x%lx", p, library_path, sd->base_addr, sd->addr);
+			LOG("Successfully found offset [%s] in library [%s]:[0x%lx] @ 0x%lx", p, object_path, sd->base_addr, sd->addr);
 		} else {
-			if(getenv(FG_PARSE_EXE_SYMS) && strcmp(library_path, getenv(FG_PARSE_EXE_SYMS)) == 0) {
+			if(g_parse_exe_syms && strcmp(object_path, g_parse_exe_syms) == 0) {
 				/* The symbol is in the main executable. Use the stored
 				 * list of symbols from the symtab instead of dlsym */
 				symbol_entry_t *se = vector_for_each(&symtab_functions, (vector_for_each_callback_t *) &each_symtab, p);
@@ -844,7 +857,6 @@ int32_t read_symbol_list(char *symbol_file) {
 					free(sd);
 					continue;
 				}
-
 			}
 
 			Dl_info dlinfo;
@@ -858,7 +870,7 @@ int32_t read_symbol_list(char *symbol_file) {
 			}
 
 			sd->has_real_symbol = true;
-			LOG("Successfully found symbol [%s] in library [%s]:[0x%lx] @ 0x%lx", p, library_path, sd->base_addr, sd->addr);
+			LOG("Successfully found symbol [%s] in library [%s]:[0x%lx] @ 0x%lx", p, object_path, sd->base_addr, sd->addr);
 		}
 
 		sd->whitelist = true;
@@ -888,9 +900,8 @@ void symbol_entry_copy(symbol_entry_t *to, symbol_entry_t *from) {
 	memcpy(to->name, from->name, sizeof(to->name));
 }
 
-uintptr_t get_base_page(uintptr_t addr) {
-	uintptr_t page_size = getpagesize();
-	return (addr & ~(page_size-1));
+inline __attribute__((always_inline)) uintptr_t get_base_page(uintptr_t addr) {
+    return ((uintptr_t) addr & ~(getpagesize()-1));
 }
 
 /* Parses the symtab of an ELF file on disk and

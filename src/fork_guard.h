@@ -21,6 +21,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <libgen.h>
 
 #include "vector_t/vector.h"
 
@@ -36,8 +37,8 @@
 /* Environment variables for controlling Fork Guard */
 #define FG_WHITELIST "FG_WHITELIST"
 #define FG_TRACING_MODE "FG_TRACING_MODE"
-#define FG_DUMPSTATS "FG_DUMPSTATS"
 #define FG_PARSE_EXE_SYMS "FG_PARSE_EXE_SYMS"
+#define FG_DUMPSTATS "FG_DUMPSTATS"
 
 #if DEBUG
 	#define LOG_ERROR(msg, ...)	\
@@ -85,6 +86,9 @@ vector_t symtab_functions;
 bool g_symbols_parsed;
 bool g_whitelist_parsed;
 bool g_stats_dumped;
+char *g_parse_exe_syms;
+char *g_whitelist;
+uintptr_t g_ip_page_cache;
 
 /* Internally Fork Guard works at the page level.
  * Before any pages are dropped we check what
@@ -126,7 +130,7 @@ pthread_mutex_t whitelist_lock;
 
 const char program_name[1024];
 
-uintptr_t get_base_page(uintptr_t addr);
+inline __attribute__((always_inline)) uintptr_t get_base_page(uintptr_t addr);
 int32_t env_to_int(char *string);
 int32_t advise_page_on_fork(uintptr_t page, bool enforce);
 int32_t read_symbol_list(char *symbol_file);

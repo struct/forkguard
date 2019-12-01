@@ -15,8 +15,8 @@ Before Fork Guard can be in enforcing mode it has to trace a child process with 
 Because of how Fork Guard is loaded with LD_PRELOAD it can only be configured by environment variables. These are documented below:
 
 ```
-FG_WHITELIST - A path to the whitelist file
 FG_TRACING_MODE - Trace all child processes with ptrace to build a code whitelist
+FG_WHITELIST - A path to the whitelist file
 FG_DUMPSTATS - Prints data collected to stdout
-FG_PARSE_EXE_SYMS - Parse the code from the loaded executable as well, not just loaded shared libraries
+FG_PARSE_EXE_SYMS - Parse the code from the loaded executable, not just loaded shared libraries
 ```
