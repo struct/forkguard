@@ -1,5 +1,5 @@
 /* Reference implementation of fork guard.
- * Copyright Chris Rohlf - 2017-2019 */
+ * Copyright Chris Rohlf - 2022 */
 
 #include "fork_guard.h"
 
@@ -317,7 +317,18 @@ void *child_tracer(void *data) {
 		    switch(WSTOPSIG(status)) {
 				case SIGSEGV:
 				case SIGILL:
+#if __aarch64__
+					ptrace(PTRACE_GETREGSET, child_pid, NT_PRSTATUS, &registers);
+					vector_for_each(&all_pages, (vector_for_each_callback_t *)check_dropped_pages, (void *) registers.regs);
+					vector_for_each(&all_pages, (vector_for_each_callback_t *)check_dropped_pages, (void *) registers.pc);
+					vector_for_each(&all_pages, (vector_for_each_callback_t *)check_dropped_pages, (void *) registers.sp);
+
+					for(int32_t i = 0; i < sizeof(registers.regs); i++) {
+						vector_for_each(&all_pages, (vector_for_each_callback_t *)check_dropped_pages, (void *) registers.regs[i]);
+					}
+#else
 					ptrace(PTRACE_GETREGS, child_pid, NULL, &registers);
+
 #ifdef __x86_64__
 					vector_for_each(&all_pages, (vector_for_each_callback_t *)check_dropped_pages, (void *) registers.rip);
 					vector_for_each(&all_pages, (vector_for_each_callback_t *)check_dropped_pages, (void *) registers.rbp);
@@ -346,6 +357,7 @@ void *child_tracer(void *data) {
 					vector_for_each(&all_pages, (vector_for_each_callback_t *)check_dropped_pages, (void *) registers.ecx);
 					vector_for_each(&all_pages, (vector_for_each_callback_t *)check_dropped_pages, (void *) registers.edx);
 					vector_for_each(&all_pages, (vector_for_each_callback_t *)check_dropped_pages, (void *) registers.edi);
+#endif
 #endif
 					ptrace(PTRACE_DETACH, child_pid, 0, 0);
 					return NULL;

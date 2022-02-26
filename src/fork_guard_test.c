@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
             exit(0);
     	}
 
-        //waitpid(child_pid, &status, 0);
+        waitpid(child_pid, &status, 0);
     }
 
 	return OK;

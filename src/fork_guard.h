@@ -1,5 +1,5 @@
 /* Reference implementation of fork guard.
- * Copyright Chris Rohlf - 2017-2019 */
+ * Copyright Chris Rohlf - 2022 */
 
 #define _GNU_SOURCE
 #include <stdio.h>
